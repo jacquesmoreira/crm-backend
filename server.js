@@ -215,4 +215,4 @@ app.get("/health", (_req, res) =>
 );
 
 // ── START ──────────────────────────────────────────
-app.listen(PORT, () => console.log(`CRM Pro API rodando na porta ${PORT}`));
+app.listen(PORT, "0.0.0.0", () => console.log(`CRM Pro API rodando na porta ${PORT}`));
