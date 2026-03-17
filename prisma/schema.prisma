@@ -1,0 +1,300 @@
+// ─────────────────────────────────────────────────
+// CRM Pro — Schema Prisma (PostgreSQL)
+// prisma/schema.prisma
+// ─────────────────────────────────────────────────
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────── ENUMS ───────────────────────────
+
+enum Plan {
+  STARTER
+  PRO
+  ENTERPRISE
+}
+
+enum Role {
+  ADMIN
+  GESTOR
+  VENDEDOR
+}
+
+enum TaskType {
+  Ligacao
+  Email
+  Reuniao
+  Followup
+  Tarefa
+}
+
+enum Priority {
+  ALTA
+  MEDIA
+  BAIXA
+}
+
+enum LeadStage {
+  Novo_Lead
+  Qualificado
+  Proposta
+  Negociacao
+  Fechado
+}
+
+enum ActivityType {
+  CRIADO
+  ESTAGIO
+  NOTA
+  LIGACAO
+  EMAIL
+  REUNIAO
+  WHATSAPP
+  ATRIBUIDO
+  SCORE
+}
+
+enum AutomationStatus {
+  EXECUTADO
+  FALHOU
+  IGNORADO
+}
+
+// ─────────────── USUÁRIO ─────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  name         String
+  email        String   @unique
+  password     String
+  avatarUrl    String?
+  phone        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspaces   WorkspaceMember[]
+  leads        Lead[]    @relation("AssignedLeads")
+  tasks        Task[]    @relation("AssignedTasks")
+  activities   Activity[]
+
+  @@index([email])
+}
+
+// ─────────────── WORKSPACE (MULTITENANCY) ────────
+
+model Workspace {
+  id          String   @id @default(cuid())
+  name        String
+  plan        Plan     @default(STARTER)
+  ownerId     String
+  currency    String   @default("BRL")
+  timezone    String   @default("America/Sao_Paulo")
+  logoUrl     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members     WorkspaceMember[]
+  leads       Lead[]
+  tags        Tag[]
+  automations Automation[]
+  metaConfigs MetaAdsConfig[]
+
+  @@index([ownerId])
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        Role      @default(VENDEDOR)
+  joinedAt    DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
+// ─────────────── LEAD ─────────────────────────────
+
+model Lead {
+  id           String     @id @default(cuid())
+  workspaceId  String
+  name         String
+  company      String?
+  email        String?
+  phone        String?
+  stage        String     @default("Novo Lead")
+  value        Float      @default(0)
+  score        Int        @default(50)
+  source       String?
+  notes        String?
+  assigneeId   String?
+  externalId   String?    // ID externo (Meta Ads, etc)
+  waStatus     String?    // WhatsApp status
+  metadata     Json?      // Dados adicionais flexíveis
+  closedAt     DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  workspace    Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  assignee     User?      @relation("AssignedLeads", fields: [assigneeId], references: [id])
+  tags         Tag[]      @relation("LeadTags")
+  activities   Activity[]
+  tasks        Task[]
+  conversations WAConversation[]
+
+  @@index([workspaceId, stage])
+  @@index([workspaceId, score])
+  @@index([workspaceId, assigneeId])
+  @@index([externalId])
+}
+
+// ─────────────── TAGS ─────────────────────────────
+
+model Tag {
+  id          String    @id @default(cuid())
+  name        String
+  color       String    @default("#64748b")
+  workspaceId String
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads       Lead[]    @relation("LeadTags")
+
+  @@unique([name, workspaceId])
+}
+
+// ─────────────── TASKS ────────────────────────────
+
+model Task {
+  id          String    @id @default(cuid())
+  leadId      String
+  assigneeId  String?
+  title       String
+  type        String    @default("Tarefa")
+  priority    Priority  @default(MEDIA)
+  done        Boolean   @default(false)
+  dueDate     DateTime?
+  notes       String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  lead        Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  assignee    User?     @relation("AssignedTasks", fields: [assigneeId], references: [id])
+
+  @@index([leadId])
+  @@index([assigneeId])
+  @@index([dueDate])
+  @@index([done])
+}
+
+// ─────────────── TIMELINE ─────────────────────────
+
+model Activity {
+  id          String       @id @default(cuid())
+  leadId      String
+  userId      String?
+  type        ActivityType
+  description String
+  metadata    Json?
+  createdAt   DateTime     @default(now())
+
+  lead        Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  user        User?        @relation(fields: [userId], references: [id])
+
+  @@index([leadId])
+  @@index([createdAt])
+}
+
+// ─────────────── WHATSAPP ─────────────────────────
+
+model WAConversation {
+  id          String    @id @default(cuid())
+  leadId      String
+  phone       String
+  unread      Int       @default(0)
+  lastMessage String?
+  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime  @default(now())
+
+  lead        Lead      @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  messages    WAMessage[]
+
+  @@index([leadId])
+  @@index([phone])
+}
+
+model WAMessage {
+  id             String         @id @default(cuid())
+  conversationId String
+  from           String         // "me" | "lead"
+  text           String
+  type           String         @default("TEXT") // TEXT | IMAGE | AUDIO | DOC
+  status         String         @default("SENT") // SENT | DELIVERED | READ | FAILED
+  metadata       Json?
+  sentAt         DateTime       @default(now())
+
+  conversation   WAConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId])
+  @@index([sentAt])
+}
+
+// ─────────────── AUTOMAÇÕES ───────────────────────
+
+model Automation {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  active      Boolean  @default(true)
+  trigger     Json     // { type, days, stage, source, value }
+  actions     Json     // [{ type, label, config }]
+  runCount    Int      @default(0)
+  lastRunAt   DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  logs        AutomationLog[]
+
+  @@index([workspaceId, active])
+}
+
+model AutomationLog {
+  id           String           @id @default(cuid())
+  automationId String
+  leadId       String?
+  event        String
+  status       AutomationStatus
+  error        String?
+  executedAt   DateTime         @default(now())
+
+  automation   Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
+
+  @@index([automationId])
+  @@index([executedAt])
+}
+
+// ─────────────── META ADS ─────────────────────────
+
+model MetaAdsConfig {
+  id          String    @id @default(cuid())
+  workspaceId String
+  pageId      String
+  adAccountId String?
+  accessToken String    // Criptografado em prod
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([pageId])
+  @@index([workspaceId])
+}
