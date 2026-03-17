@@ -8,6 +8,7 @@ const { PrismaClient } = require("@prisma/client");
 require("dotenv").config();
 
 const app    = express();
+app.set("trust proxy", 1);
 const prisma = new PrismaClient();
 const PORT   = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || "crm_secret_2026";
