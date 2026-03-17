@@ -14,7 +14,7 @@ const PORT   = process.env.PORT || 3001;
 const JWT_SECRET = process.env.JWT_SECRET || "crm_secret_2026";
 
 app.use(helmet());
-app.use(cors({ origin: "*", credentials: true }));
+app.use(cors({ origin: "*" }));
 app.use(express.json({ limit: "10mb" }));
 app.use("/api/", rateLimit({ windowMs: 15 * 60 * 1000, max: 200 }));
 
