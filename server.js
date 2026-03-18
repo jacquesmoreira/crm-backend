@@ -216,6 +216,7 @@ const EVO_KEY = process.env.EVOLUTION_API_KEY;
 const evoHeaders = {
   "Content-Type": "application/json",
   "apikey": EVO_KEY
+  "ApiKey": EVO_KEY
 };
 
 // Criar instância WhatsApp para um workspace
