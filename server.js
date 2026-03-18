@@ -221,7 +221,7 @@ const evoHeaders = {
 // Criar instância WhatsApp para um workspace
 app.post("/api/workspaces/:wsId/whatsapp/connect", auth, async (req, res) => {
   try {
-    const instanceName = `leadturbo_${req.params.wsId}`;
+    const instanceName = `leadturbo_teste`;
     const r = await fetch(`${EVO_URL}/instance/create`, {
       method: "POST",
       headers: evoHeaders,
@@ -241,7 +241,7 @@ app.post("/api/workspaces/:wsId/whatsapp/connect", auth, async (req, res) => {
 // Pegar QR Code
 app.get("/api/workspaces/:wsId/whatsapp/qrcode", auth, async (req, res) => {
   try {
-    const instanceName = `leadturbo_${req.params.wsId}`;
+    const instanceName = `leadturbo_teste`;
     const r = await fetch(`${EVO_URL}/instance/connect/${instanceName}`, {
       headers: evoHeaders
     });
@@ -255,7 +255,7 @@ app.get("/api/workspaces/:wsId/whatsapp/qrcode", auth, async (req, res) => {
 // Status da conexão
 app.get("/api/workspaces/:wsId/whatsapp/status", auth, async (req, res) => {
   try {
-    const instanceName = `leadturbo_${req.params.wsId}`;
+    const instanceName = `leadturbo_teste`;
     const r = await fetch(`${EVO_URL}/instance/fetchInstances?instanceName=${instanceName}`, {
       headers: evoHeaders
     });
@@ -270,7 +270,7 @@ app.get("/api/workspaces/:wsId/whatsapp/status", auth, async (req, res) => {
 app.post("/api/workspaces/:wsId/whatsapp/send", auth, async (req, res) => {
   try {
     const { phone, message } = req.body;
-    const instanceName = `leadturbo_${req.params.wsId}`;
+    const instanceName = `leadturbo_teste`;
     const r = await fetch(`${EVO_URL}/message/sendText/${instanceName}`, {
       method: "POST",
       headers: evoHeaders,
