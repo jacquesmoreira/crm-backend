@@ -210,10 +210,8 @@ app.post("/api/webhooks/meta", async (req, res) => {
 });
 
 // ── WHATSAPP (Evolution API) ───────────────────────────
-const EVO_URL = process.env.EVOLUTION_API_URL;
-const EVO_KEY = process.env.EVOLUTION_API_KEY;
-console.log("EVO_KEY:", EVO_KEY);
-console.log("EVO_URL:", EVO_URL);
+const EVO_URL = process.env.EVOLUTION_API_URL || "https://evolution-api-production-a08d.up.railway.app";
+const EVO_KEY = process.env.EVOLUTION_API_KEY || "leadturbo_evo_key_2026";
 
 const evoHeaders = {
   "Content-Type": "application/json",
