@@ -209,6 +209,96 @@ app.post("/api/webhooks/meta", async (req, res) => {
   console.log("Meta webhook recebido:", JSON.stringify(req.body));
 });
 
+// ── WHATSAPP (Evolution API) ───────────────────────────
+const EVO_URL = process.env.EVOLUTION_API_URL;
+const EVO_KEY = process.env.EVOLUTION_API_KEY;
+
+const evoHeaders = {
+  "Content-Type": "application/json",
+  "apikey": EVO_KEY
+};
+
+// Criar instância WhatsApp para um workspace
+app.post("/api/workspaces/:wsId/whatsapp/connect", auth, async (req, res) => {
+  try {
+    const instanceName = `leadturbo_${req.params.wsId}`;
+    const r = await fetch(`${EVO_URL}/instance/create`, {
+      method: "POST",
+      headers: evoHeaders,
+      body: JSON.stringify({
+        instanceName,
+        qrcode: true,
+        integration: "WHATSAPP-BAILEYS"
+      })
+    });
+    const d = await r.json();
+    res.json(d);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao criar instância WhatsApp" });
+  }
+});
+
+// Pegar QR Code
+app.get("/api/workspaces/:wsId/whatsapp/qrcode", auth, async (req, res) => {
+  try {
+    const instanceName = `leadturbo_${req.params.wsId}`;
+    const r = await fetch(`${EVO_URL}/instance/connect/${instanceName}`, {
+      headers: evoHeaders
+    });
+    const d = await r.json();
+    res.json(d);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar QR Code" });
+  }
+});
+
+// Status da conexão
+app.get("/api/workspaces/:wsId/whatsapp/status", auth, async (req, res) => {
+  try {
+    const instanceName = `leadturbo_${req.params.wsId}`;
+    const r = await fetch(`${EVO_URL}/instance/fetchInstances?instanceName=${instanceName}`, {
+      headers: evoHeaders
+    });
+    const d = await r.json();
+    res.json(d);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao verificar status" });
+  }
+});
+
+// Enviar mensagem
+app.post("/api/workspaces/:wsId/whatsapp/send", auth, async (req, res) => {
+  try {
+    const { phone, message } = req.body;
+    const instanceName = `leadturbo_${req.params.wsId}`;
+    const r = await fetch(`${EVO_URL}/message/sendText/${instanceName}`, {
+      method: "POST",
+      headers: evoHeaders,
+      body: JSON.stringify({
+        number: phone.replace(/\D/g, ""),
+        text: message
+      })
+    });
+    const d = await r.json();
+    res.json(d);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao enviar mensagem" });
+  }
+});
+
+// Webhook receber mensagens da Evolution API
+app.post("/api/webhooks/whatsapp", async (req, res) => {
+  res.sendStatus(200);
+  const { event, instance, data } = req.body;
+  if (event === "messages.upsert" && data?.message) {
+    const phone = data.key?.remoteJid?.replace("@s.whatsapp.net", "");
+    const text  = data.message?.conversation || data.message?.extendedTextMessage?.text || "";
+    const from  = data.key?.fromMe ? "me" : "lead";
+    console.log(`WA [${instance}] ${from} ${phone}: ${text}`);
+    // Aqui você pode salvar no banco e notificar o frontend via websocket
+  }
+});
+
 // ── HEALTH ─────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", uptime: Math.round(process.uptime()) })
