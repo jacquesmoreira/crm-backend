@@ -307,9 +307,11 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
     const wsId = instance?.replace("leadturbo_", "");
     console.log(`WA [${wsId}] ${from} ${phone}: ${text}`);
     // Emitir via WebSocket para o frontend (próxima etapa)
-    if (global.io) {
-      global.io.to(wsId).emit("wa_message", { phone, text, from, time: new Date() });
-    }
+    console.log("global.io exists:", !!global.io, "wsId:", wsId);
+if (global.io) {
+  global.io.to(wsId).emit("wa_message", { phone, text, from, time: new Date() });
+  console.log("Emitted wa_message to:", wsId);
+}
   }
 });
 
