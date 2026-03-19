@@ -7,7 +7,19 @@ const bcrypt       = require("bcrypt");
 const { PrismaClient } = require("@prisma/client");
 require("dotenv").config();
 
-const app    = express();
+const app = express();
+const http = require("http");
+const { Server } = require("socket.io");
+const server = http.createServer(app);
+const io = new Server(server, { cors: { origin: "*" } });
+global.io = io;
+
+io.on("connection", (socket) => {
+  socket.on("join", (wsId) => {
+    socket.join(wsId);
+    console.log(`Socket joined workspace: ${wsId}`);
+  });
+});
 app.set("trust proxy", 1);
 const prisma = new PrismaClient();
 const PORT   = process.env.PORT || 3001;
@@ -307,4 +319,4 @@ app.get("/health", (_req, res) =>
 );
 
 // ── START ──────────────────────────────────────────
-app.listen(PORT, "0.0.0.0", () => console.log(`CRM Pro API rodando na porta ${PORT}`));
+server.listen(PORT, "0.0.0.0", () => console.log(`CRM Pro API rodando na porta ${PORT}`));
