@@ -272,15 +272,18 @@ app.post("/api/workspaces/:wsId/whatsapp/send", auth, async (req, res) => {
   try {
     const { phone, message } = req.body;
     const instanceName = `leadturbo_teste`;
-    const r = await fetch(`${EVO_URL}/message/sendText/${instanceName}`, {
+    const evoKey = process.env.EVOLUTION_API_KEY || "leadturbo_evo_key_2026";
+    const evoUrl = process.env.EVOLUTION_API_URL || "https://evolution-api-production-a08d.up.railway.app";
+    console.log("Sending WA - key:", evoKey, "url:", evoUrl, "phone:", phone);
+    const r = await fetch(`${evoUrl}/message/sendText/${instanceName}`, {
       method: "POST",
-      headers: evoHeaders,
+      headers: {"Content-Type":"application/json","apikey":evoKey},
       body: JSON.stringify({
         number: phone.replace(/\D/g, ""),
         text: message
       })
     });
-    const d = await r.json();
+const d = await r.json();
     res.json(d);
   } catch (err) {
     res.status(500).json({ error: "Erro ao enviar mensagem" });
