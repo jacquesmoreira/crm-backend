@@ -315,6 +315,25 @@ if (global.io) {
   }
 });
 
+// ── AI PROXY ──────────────────────────────────────────
+app.post("/api/ai/analyze", auth, async (req, res) => {
+  try {
+    const r = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": process.env.ANTHROPIC_API_KEY,
+        "anthropic-version": "2023-06-01"
+      },
+      body: JSON.stringify(req.body)
+    });
+    const d = await r.json();
+    res.json(d);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao chamar IA" });
+  }
+});
+
 // ── HEALTH ─────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", uptime: Math.round(process.uptime()) })
