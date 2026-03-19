@@ -219,33 +219,32 @@ const evoHeaders = {
   "Apikey": EVO_KEY
 };
 
-// Criar instância WhatsApp para um workspace
+const getInstance = (wsId) => `leadturbo_${wsId}`;
+
+// Criar/conectar instância
 app.post("/api/workspaces/:wsId/whatsapp/connect", auth, async (req, res) => {
   try {
-    const instanceName = `leadturbo_teste`;
-    const r = await fetch(`${EVO_URL}/instance/create`, {
+    const instanceName = getInstance(req.params.wsId);
+    // Tenta criar — se já existe ignora o erro
+    await fetch(`${EVO_URL}/instance/create`, {
       method: "POST",
       headers: evoHeaders,
-      body: JSON.stringify({
-        instanceName,
-        qrcode: true,
-        integration: "WHATSAPP-BAILEYS"
-      })
-    });
+      body: JSON.stringify({ instanceName, qrcode: true, integration: "WHATSAPP-BAILEYS" })
+    }).catch(()=>{});
+    // Retorna QR Code
+    const r = await fetch(`${EVO_URL}/instance/connect/${instanceName}`, { headers: evoHeaders });
     const d = await r.json();
     res.json(d);
   } catch (err) {
-    res.status(500).json({ error: "Erro ao criar instância WhatsApp" });
+    res.status(500).json({ error: "Erro ao conectar WhatsApp" });
   }
 });
 
-// Pegar QR Code
+// QR Code
 app.get("/api/workspaces/:wsId/whatsapp/qrcode", auth, async (req, res) => {
   try {
-    const instanceName = `leadturbo_teste`;
-    const r = await fetch(`${EVO_URL}/instance/connect/${instanceName}`, {
-      headers: evoHeaders
-    });
+    const instanceName = getInstance(req.params.wsId);
+    const r = await fetch(`${EVO_URL}/instance/connect/${instanceName}`, { headers: evoHeaders });
     const d = await r.json();
     res.json(d);
   } catch (err) {
@@ -253,15 +252,14 @@ app.get("/api/workspaces/:wsId/whatsapp/qrcode", auth, async (req, res) => {
   }
 });
 
-// Status da conexão
+// Status
 app.get("/api/workspaces/:wsId/whatsapp/status", auth, async (req, res) => {
   try {
-    const instanceName = `leadturbo_teste`;
-    const r = await fetch(`${EVO_URL}/instance/fetchInstances?instanceName=${instanceName}`, {
-      headers: evoHeaders
-    });
+    const instanceName = getInstance(req.params.wsId);
+    const r = await fetch(`${EVO_URL}/instance/fetchInstances?instanceName=${instanceName}`, { headers: evoHeaders });
     const d = await r.json();
-    res.json(d);
+    const instance = Array.isArray(d) ? d[0] : d;
+    res.json({ connected: instance?.connectionStatus === "open", status: instance?.connectionStatus || "close" });
   } catch (err) {
     res.status(500).json({ error: "Erro ao verificar status" });
   }
@@ -271,35 +269,35 @@ app.get("/api/workspaces/:wsId/whatsapp/status", auth, async (req, res) => {
 app.post("/api/workspaces/:wsId/whatsapp/send", auth, async (req, res) => {
   try {
     const { phone, message } = req.body;
-    const instanceName = `leadturbo_teste`;
+    const instanceName = getInstance(req.params.wsId);
     const evoKey = process.env.EVOLUTION_API_KEY || "leadturbo_evo_key_2026";
     const evoUrl = process.env.EVOLUTION_API_URL || "https://evolution-api-production-a08d.up.railway.app";
-    console.log("Sending WA - key:", evoKey, "url:", evoUrl, "phone:", phone);
     const r = await fetch(`${evoUrl}/message/sendText/${instanceName}`, {
       method: "POST",
-      headers: {"Content-Type":"application/json","apikey":evoKey},
-      body: JSON.stringify({
-        number: phone.replace(/\D/g, ""),
-        text: message
-      })
+      headers: { "Content-Type": "application/json", "apikey": evoKey },
+      body: JSON.stringify({ number: phone.replace(/\D/g, ""), text: message })
     });
-const d = await r.json();
+    const d = await r.json();
     res.json(d);
   } catch (err) {
     res.status(500).json({ error: "Erro ao enviar mensagem" });
   }
 });
 
-// Webhook receber mensagens da Evolution API
+// Webhook receber mensagens
 app.post("/api/webhooks/whatsapp", async (req, res) => {
   res.sendStatus(200);
   const { event, instance, data } = req.body;
   if (event === "messages.upsert" && data?.message) {
     const phone = data.key?.remoteJid?.replace("@s.whatsapp.net", "");
-    const text  = data.message?.conversation || data.message?.extendedTextMessage?.text || "";
-    const from  = data.key?.fromMe ? "me" : "lead";
-    console.log(`WA [${instance}] ${from} ${phone}: ${text}`);
-    // Aqui você pode salvar no banco e notificar o frontend via websocket
+    const text = data.message?.conversation || data.message?.extendedTextMessage?.text || "";
+    const from = data.key?.fromMe ? "me" : "lead";
+    const wsId = instance?.replace("leadturbo_", "");
+    console.log(`WA [${wsId}] ${from} ${phone}: ${text}`);
+    // Emitir via WebSocket para o frontend (próxima etapa)
+    if (global.io) {
+      global.io.to(wsId).emit("wa_message", { phone, text, from, time: new Date() });
+    }
   }
 });
 
