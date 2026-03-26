@@ -112,6 +112,9 @@ app.post("/api/workspaces/:wsId/leads", auth, async (req, res) => {
       data: { name, company, email, phone, value: Number(value) || 0,
         source, notes, workspaceId: req.params.wsId, stage: "Novo Lead", score: 50 }
     });
+    await prisma.activity.create({
+      data:{ leadId:lead.id, userId:req.user.id, type:"CRIADO", description:`Lead ${name} criado` }
+    }).catch(()=>{});
     res.status(201).json(lead);
   } catch (err) {
     console.error(err);
@@ -120,13 +123,52 @@ app.post("/api/workspaces/:wsId/leads", auth, async (req, res) => {
 });
 
 app.patch("/api/workspaces/:wsId/leads/:id", auth, async (req, res) => {
-  const lead = await prisma.lead.update({ where: { id: req.params.id }, data: req.body });
-  res.json(lead);
+  try {
+    const lead = await prisma.lead.update({ where: { id: req.params.id }, data: req.body });
+    if(req.body.stage){
+      await prisma.activity.create({
+        data:{ leadId:req.params.id, userId:req.user.id, type:"ESTAGIO", description:`Etapa alterada para ${req.body.stage}` }
+      }).catch(()=>{});
+    } else {
+      await prisma.activity.create({
+        data:{ leadId:req.params.id, userId:req.user.id, type:"NOTA", description:"Lead atualizado" }
+      }).catch(()=>{});
+    }
+    res.json(lead);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao atualizar lead" });
+  }
 });
 
 app.delete("/api/workspaces/:wsId/leads/:id", auth, async (req, res) => {
   await prisma.lead.delete({ where: { id: req.params.id } });
   res.json({ success: true });
+});
+
+// ── ACTIVITIES (Timeline) ──────────────────────────
+app.get("/api/workspaces/:wsId/leads/:id/activities", auth, async (req, res) => {
+  try {
+    const activities = await prisma.activity.findMany({
+      where: { leadId: req.params.id },
+      orderBy: { createdAt: "desc" },
+      include: { user: { select: { name: true } } }
+    });
+    res.json(activities);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar atividades" });
+  }
+});
+
+app.post("/api/workspaces/:wsId/leads/:id/activities", auth, async (req, res) => {
+  try {
+    const { type, description, metadata } = req.body;
+    const activity = await prisma.activity.create({
+      data: { leadId: req.params.id, userId: req.user.id, type, description, metadata }
+    });
+    res.status(201).json(activity);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao criar atividade" });
+  }
 });
 
 // ── PIPELINE ───────────────────────────────────────
@@ -331,6 +373,32 @@ app.post("/api/ai/analyze", auth, async (req, res) => {
     res.json(d);
   } catch (err) {
     res.status(500).json({ error: "Erro ao chamar IA" });
+  }
+});
+
+// ── ACTIVITIES (Timeline) ──────────────────────────
+app.get("/api/workspaces/:wsId/leads/:id/activities", auth, async (req, res) => {
+  try {
+    const activities = await prisma.activity.findMany({
+      where: { leadId: req.params.id },
+      orderBy: { createdAt: "desc" },
+      include: { user: { select: { name: true } } }
+    });
+    res.json(activities);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar atividades" });
+  }
+});
+
+app.post("/api/workspaces/:wsId/leads/:id/activities", auth, async (req, res) => {
+  try {
+    const { type, description, metadata } = req.body;
+    const activity = await prisma.activity.create({
+      data: { leadId: req.params.id, userId: req.user.id, type, description, metadata }
+    });
+    res.status(201).json(activity);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao criar atividade" });
   }
 });
 
