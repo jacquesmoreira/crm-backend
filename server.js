@@ -482,6 +482,55 @@ app.delete("/api/workspaces/:wsId/pipelines/:id", auth, async (req, res) => {
   }
 });
 
+// ── E-MAIL (SMTP) ──────────────────────────────────
+const nodemailer = require("nodemailer");
+
+app.post("/api/workspaces/:wsId/email/config", auth, async (req, res) => {
+  try {
+    const { host, port, user, pass, fromName } = req.body;
+    await prisma.workspace.update({
+      where: { id: req.params.wsId },
+      data: { metadata: { smtpHost: host, smtpPort: Number(port)||465, smtpUser: user, smtpPass: pass, smtpFromName: fromName||user } }
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao salvar configuração" });
+  }
+});
+
+app.get("/api/workspaces/:wsId/email/config", auth, async (req, res) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const meta = ws?.metadata || {};
+    res.json({ host: meta.smtpHost||"", port: meta.smtpPort||465, user: meta.smtpUser||"", fromName: meta.smtpFromName||"" });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar configuração" });
+  }
+});
+
+app.post("/api/workspaces/:wsId/email/send", auth, async (req, res) => {
+  try {
+    const { to, subject, body, leadId } = req.body;
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const meta = ws?.metadata || {};
+    if(!meta.smtpHost||!meta.smtpUser||!meta.smtpPass) return res.status(400).json({ error: "SMTP não configurado" });
+    const transporter = nodemailer.createTransport({
+      host: meta.smtpHost, port: meta.smtpPort||465, secure: (meta.smtpPort||465)===465,
+      auth: { user: meta.smtpUser, pass: meta.smtpPass }
+    });
+    await transporter.sendMail({ from: `"${meta.smtpFromName||meta.smtpUser}" <${meta.smtpUser}>`, to, subject, text: body, html: body.replace(/\n/g,"<br>") });
+    if(leadId){
+      await prisma.activity.create({
+        data:{ leadId, userId:req.user.id, type:"EMAIL", description:`E-mail enviado para ${to}: ${subject}` }
+      }).catch(()=>{});
+    }
+    res.json({ success: true });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao enviar e-mail: "+err.message });
+  }
+});
+
 // ── HEALTH ─────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", uptime: Math.round(process.uptime()) })

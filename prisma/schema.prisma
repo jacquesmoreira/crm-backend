@@ -106,6 +106,7 @@ model Workspace {
   metaConfigs MetaAdsConfig[]
   customFields CustomField[]
   pipelines    Pipeline[]
+  metadata    Json?
 
   @@index([ownerId])
 }
