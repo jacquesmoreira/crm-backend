@@ -105,6 +105,7 @@ model Workspace {
   automations Automation[]
   metaConfigs MetaAdsConfig[]
   customFields CustomField[]
+  pipelines    Pipeline[]
 
   @@index([ownerId])
 }
@@ -151,6 +152,8 @@ model Lead {
   activities   Activity[]
   tasks        Task[]
   conversations WAConversation[]
+  pipelineId   String?
+  pipeline     Pipeline? @relation(fields: [pipelineId], references: [id])
 
   @@index([workspaceId, stage])
   @@index([workspaceId, score])
@@ -317,3 +320,19 @@ model CustomField {
   @@index([workspaceId])
 }
 
+// ─────────────── PIPELINES ───────────────────────
+
+model Pipeline {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  stages      Json      // ["Etapa 1", "Etapa 2", ...]
+  isDefault   Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  leads       Lead[]
+
+  @@index([workspaceId])
+}

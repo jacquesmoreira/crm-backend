@@ -437,6 +437,51 @@ app.delete("/api/workspaces/:wsId/custom-fields/:id", auth, async (req, res) => 
   }
 });
 
+// ── PIPELINES ──────────────────────────────────────
+app.get("/api/workspaces/:wsId/pipelines", auth, async (req, res) => {
+  try {
+    const pipelines = await prisma.pipeline.findMany({
+      where: { workspaceId: req.params.wsId },
+      orderBy: { createdAt: "asc" }
+    });
+    res.json(pipelines);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar pipelines" });
+  }
+});
+
+app.post("/api/workspaces/:wsId/pipelines", auth, async (req, res) => {
+  try {
+    const { name, stages } = req.body;
+    const pipeline = await prisma.pipeline.create({
+      data: { name, stages: stages||["Novo Lead","Qualificado","Proposta","Negociação","Fechado"], workspaceId: req.params.wsId }
+    });
+    res.status(201).json(pipeline);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao criar pipeline" });
+  }
+});
+
+app.patch("/api/workspaces/:wsId/pipelines/:id", auth, async (req, res) => {
+  try {
+    const pipeline = await prisma.pipeline.update({
+      where: { id: req.params.id }, data: req.body
+    });
+    res.json(pipeline);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao atualizar pipeline" });
+  }
+});
+
+app.delete("/api/workspaces/:wsId/pipelines/:id", auth, async (req, res) => {
+  try {
+    await prisma.pipeline.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao deletar pipeline" });
+  }
+});
+
 // ── HEALTH ─────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", uptime: Math.round(process.uptime()) })
