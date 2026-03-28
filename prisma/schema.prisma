@@ -104,6 +104,7 @@ model Workspace {
   tags        Tag[]
   automations Automation[]
   metaConfigs MetaAdsConfig[]
+  customFields CustomField[]
 
   @@index([ownerId])
 }
@@ -298,3 +299,21 @@ model MetaAdsConfig {
   @@index([pageId])
   @@index([workspaceId])
 }
+
+// ─────────────── CAMPOS PERSONALIZADOS ───────────
+
+model CustomField {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  type        String    @default("text") // text | number | date | select
+  options     Json?     // para type = select
+  required    Boolean   @default(false)
+  order       Int       @default(0)
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId])
+}
+

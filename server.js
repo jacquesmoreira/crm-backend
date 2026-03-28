@@ -402,6 +402,41 @@ app.post("/api/workspaces/:wsId/leads/:id/activities", auth, async (req, res) =>
   }
 });
 
+// ── CAMPOS PERSONALIZADOS ──────────────────────────
+app.get("/api/workspaces/:wsId/custom-fields", auth, async (req, res) => {
+  try {
+    const fields = await prisma.customField.findMany({
+      where: { workspaceId: req.params.wsId },
+      orderBy: { order: "asc" }
+    });
+    res.json(fields);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar campos" });
+  }
+});
+
+app.post("/api/workspaces/:wsId/custom-fields", auth, async (req, res) => {
+  try {
+    const { name, type, options, required } = req.body;
+    const count = await prisma.customField.count({ where: { workspaceId: req.params.wsId } });
+    const field = await prisma.customField.create({
+      data: { name, type: type||"text", options, required: required||false, order: count, workspaceId: req.params.wsId }
+    });
+    res.status(201).json(field);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao criar campo" });
+  }
+});
+
+app.delete("/api/workspaces/:wsId/custom-fields/:id", auth, async (req, res) => {
+  try {
+    await prisma.customField.delete({ where: { id: req.params.id } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao deletar campo" });
+  }
+});
+
 // ── HEALTH ─────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", uptime: Math.round(process.uptime()) })
