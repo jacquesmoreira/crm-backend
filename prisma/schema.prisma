@@ -78,6 +78,8 @@ model User {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   stripeCustomerId String?
+  trialUsed    Boolean  @default(false)
+  trialStarted DateTime?
 
   workspaces   WorkspaceMember[]
   leads        Lead[]    @relation("AssignedLeads")

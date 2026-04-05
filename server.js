@@ -541,24 +541,40 @@ const PLANS = {
   agency:  { priceId: "price_1TIql93DNcWhpXE14WJRCnnH", name: "Agency",  amount: 29700 },
 };
 
-/// Criar sessão de checkout
+// Criar sessão de checkout
 app.post("/api/billing/checkout", auth, async (req, res) => {
   try {
     const { plan } = req.body;
     const p = PLANS[plan];
     if(!p) return res.status(400).json({ error: "Plano inválido" });
     const user = await prisma.user.findUnique({ where: { id: req.user.id } });
-    const session = await stripe.checkout.sessions.create({
+    
+    const trialEligible = !user.trialUsed;
+    
+    const sessionParams = {
       mode: "subscription",
       payment_method_types: ["card"],
       customer_email: user.email,
       line_items: [{ price: p.priceId, quantity: 1 }],
-      trial_period_days: 15,
-      payment_method_collection: "if_required",
       success_url: `${process.env.FRONTEND_URL || "https://leadturbo.shop"}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL || "https://leadturbo.shop"}/pricing`,
       metadata: { userId: req.user.id, plan },
-    });
+    };
+
+    if(trialEligible){
+      sessionParams.trial_period_days = 15;
+      sessionParams.payment_method_collection = "if_required";
+    }
+
+    const session = await stripe.checkout.sessions.create(sessionParams);
+
+    if(trialEligible){
+      await prisma.user.update({
+        where: { id: req.user.id },
+        data: { trialUsed: true, trialStarted: new Date() }
+      });
+    }
+
     res.json({ url: session.url });
   } catch (err) {
     console.error(err);
