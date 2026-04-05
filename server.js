@@ -693,8 +693,11 @@ app.get("/api/workspaces/:wsId/meta/campaigns", auth, async (req, res) => {
     const accountId = req.query.accountId || meta.metaAdAccounts?.[0]?.id;
     if(!accountId) return res.status(400).json({ error: "Nenhuma conta de anúncios encontrada" });
     // Busca campanhas com métricas
-    const datePreset = req.query.datePreset || "last_30d";
-const r = await fetch(`https://graph.facebook.com/v19.0/${accountId}/campaigns?fields=id,name,status,objective,daily_budget,lifetime_budget,insights.date_preset(${datePreset}){spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,actions,action_values,cost_per_action_type,website_purchase_roas,conversions}&limit=50&access_token=${meta.metaAccessToken}`);
+    const { datePreset, dateStart, dateEnd } = req.query;
+    const dateParam = dateStart && dateEnd
+      ? `time_range={"since":"${dateStart}","until":"${dateEnd}"}`
+      : `date_preset=${datePreset||"last_30d"}`;
+    const r = await fetch(`https://graph.facebook.com/v19.0/${accountId}/campaigns?fields=id,name,status,objective,daily_budget,lifetime_budget,insights.${dateParam}{spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,actions,action_values,cost_per_action_type,website_purchase_roas,conversions}&limit=50&access_token=${meta.metaAccessToken}`);
     const d = await r.json();
     if(d.error) return res.status(400).json({ error: d.error.message });
     res.json(d.data || []);
@@ -730,6 +733,44 @@ app.delete("/api/workspaces/:wsId/meta/disconnect", auth, async (req, res) => {
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: "Erro ao desconectar" });
+  }
+});
+
+// Conjuntos de anúncios (Ad Sets)
+app.get("/api/workspaces/:wsId/meta/adsets", auth, async (req, res) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const meta = ws?.metadata || {};
+    if(!meta.metaAccessToken) return res.status(400).json({ error: "Meta Ads não conectado" });
+    const { campaignId, datePreset, dateStart, dateEnd } = req.query;
+    const dateParam = dateStart && dateEnd
+      ? `time_range={"since":"${dateStart}","until":"${dateEnd}"}`
+      : `date_preset=${datePreset||"last_30d"}`;
+    const r = await fetch(`https://graph.facebook.com/v19.0/${campaignId}/adsets?fields=id,name,status,daily_budget,lifetime_budget,insights.${dateParam}{spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,actions,action_values,cost_per_action_type,website_purchase_roas}&limit=50&access_token=${meta.metaAccessToken}`);
+    const d = await r.json();
+    if(d.error) return res.status(400).json({ error: d.error.message });
+    res.json(d.data || []);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar conjuntos" });
+  }
+});
+
+// Anúncios (Ads)
+app.get("/api/workspaces/:wsId/meta/ads", auth, async (req, res) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const meta = ws?.metadata || {};
+    if(!meta.metaAccessToken) return res.status(400).json({ error: "Meta Ads não conectado" });
+    const { adsetId, datePreset, dateStart, dateEnd } = req.query;
+    const dateParam = dateStart && dateEnd
+      ? `time_range={"since":"${dateStart}","until":"${dateEnd}"}`
+      : `date_preset=${datePreset||"last_30d"}`;
+    const r = await fetch(`https://graph.facebook.com/v19.0/${adsetId}/ads?fields=id,name,status,creative{id,name,thumbnail_url},insights.${dateParam}{spend,impressions,clicks,reach,cpm,cpc,ctr,actions,action_values,cost_per_action_type,website_purchase_roas}&limit=50&access_token=${meta.metaAccessToken}`);
+    const d = await r.json();
+    if(d.error) return res.status(400).json({ error: d.error.message });
+    res.json(d.data || []);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar anúncios" });
   }
 });
 
