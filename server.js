@@ -694,7 +694,7 @@ app.get("/api/workspaces/:wsId/meta/campaigns", auth, async (req, res) => {
     if(!accountId) return res.status(400).json({ error: "Nenhuma conta de anúncios encontrada" });
     // Busca campanhas com métricas
     const datePreset = req.query.datePreset || "last_30d";
-const r = await fetch(`https://graph.facebook.com/v19.0/${accountId}/campaigns?fields=id,name,status,daily_budget,lifetime_budget,insights.date_preset(${datePreset}){spend,impressions,clicks,cpm,cpc,actions,reach}&limit=50&access_token=${meta.metaAccessToken}`);
+const r = await fetch(`https://graph.facebook.com/v19.0/${accountId}/campaigns?fields=id,name,status,objective,daily_budget,lifetime_budget,insights.date_preset(${datePreset}){spend,impressions,clicks,reach,frequency,cpm,cpc,ctr,actions,action_values,cost_per_action_type,website_purchase_roas,conversions}&limit=50&access_token=${meta.metaAccessToken}`);
     const d = await r.json();
     if(d.error) return res.status(400).json({ error: d.error.message });
     res.json(d.data || []);
