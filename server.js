@@ -644,9 +644,16 @@ const META_APP_SECRET = process.env.META_APP_SECRET;
 const META_REDIRECT = `${process.env.FRONTEND_URL || "https://leadturbo.shop"}/api/meta/oauth/callback`;
 
 // Iniciar OAuth - redireciona para o Meta
-app.get("/api/meta/oauth/start", auth, async (req, res) => {
-  const wsId = req.query.wsId;
-  const state = Buffer.from(JSON.stringify({ userId: req.user.id, wsId })).toString("base64");
+app.get("/api/meta/oauth/start", async (req, res) => {
+  const { wsId, token } = req.query;
+  let userId;
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    userId = decoded.id;
+  } catch {
+    return res.status(401).json({ error: "Token inválido" });
+  }
+  const state = Buffer.from(JSON.stringify({ userId, wsId })).toString("base64");
   const url = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(`https://crm-backend-production-987f.up.railway.app/api/meta/oauth/callback`)}&scope=ads_read,ads_management,business_management&state=${state}`;
   res.redirect(url);
 });
