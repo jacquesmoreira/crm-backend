@@ -638,6 +638,93 @@ app.post("/api/webhooks/stripe", express.raw({type:"application/json"}), async (
   res.json({ received: true });
 });
 
+// ── META ADS OAUTH ─────────────────────────────────
+const META_APP_ID = process.env.META_APP_ID;
+const META_APP_SECRET = process.env.META_APP_SECRET;
+const META_REDIRECT = `${process.env.FRONTEND_URL || "https://leadturbo.shop"}/api/meta/oauth/callback`;
+
+// Iniciar OAuth - redireciona para o Meta
+app.get("/api/meta/oauth/start", auth, async (req, res) => {
+  const wsId = req.query.wsId;
+  const state = Buffer.from(JSON.stringify({ userId: req.user.id, wsId })).toString("base64");
+  const url = `https://www.facebook.com/v19.0/dialog/oauth?client_id=${META_APP_ID}&redirect_uri=${encodeURIComponent(`https://crm-backend-production-987f.up.railway.app/api/meta/oauth/callback`)}&scope=ads_read,ads_management,business_management&state=${state}`;
+  res.redirect(url);
+});
+
+// Callback OAuth - recebe o code e troca pelo token
+app.get("/api/meta/oauth/callback", async (req, res) => {
+  try {
+    const { code, state } = req.query;
+    const { userId, wsId } = JSON.parse(Buffer.from(state, "base64").toString());
+    // Troca code por token
+    const r = await fetch(`https://graph.facebook.com/v19.0/oauth/access_token?client_id=${META_APP_ID}&client_secret=${META_APP_SECRET}&redirect_uri=${encodeURIComponent(`https://crm-backend-production-987f.up.railway.app/api/meta/oauth/callback`)}&code=${code}`);
+    const d = await r.json();
+    if(!d.access_token) throw new Error("Token não recebido");
+    // Busca contas de anúncio do usuário
+    const adR = await fetch(`https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status&access_token=${d.access_token}`);
+    const adD = await adR.json();
+    // Salva token e ad accounts no workspace
+    const ws = await prisma.workspace.findUnique({ where: { id: wsId } });
+    const meta = ws?.metadata || {};
+    await prisma.workspace.update({
+      where: { id: wsId },
+      data: { metadata: { ...meta, metaAccessToken: d.access_token, metaAdAccounts: adD.data || [], metaConnectedAt: new Date() } }
+    });
+    res.redirect(`${process.env.FRONTEND_URL || "https://leadturbo.shop"}/?meta=connected`);
+  } catch (err) {
+    console.error("Meta OAuth error:", err);
+    res.redirect(`${process.env.FRONTEND_URL || "https://leadturbo.shop"}/?meta=error`);
+  }
+});
+
+// Buscar campanhas do workspace
+app.get("/api/workspaces/:wsId/meta/campaigns", auth, async (req, res) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const meta = ws?.metadata || {};
+    if(!meta.metaAccessToken) return res.status(400).json({ error: "Meta Ads não conectado" });
+    const accountId = req.query.accountId || meta.metaAdAccounts?.[0]?.id;
+    if(!accountId) return res.status(400).json({ error: "Nenhuma conta de anúncios encontrada" });
+    // Busca campanhas com métricas
+    const r = await fetch(`https://graph.facebook.com/v19.0/${accountId}/campaigns?fields=id,name,status,daily_budget,lifetime_budget,insights{spend,impressions,clicks,cpm,cpc,actions}&access_token=${meta.metaAccessToken}`);
+    const d = await r.json();
+    if(d.error) return res.status(400).json({ error: d.error.message });
+    res.json(d.data || []);
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar campanhas" });
+  }
+});
+
+// Status da conexão Meta
+app.get("/api/workspaces/:wsId/meta/status", auth, async (req, res) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const meta = ws?.metadata || {};
+    res.json({
+      connected: !!meta.metaAccessToken,
+      adAccounts: meta.metaAdAccounts || [],
+      connectedAt: meta.metaConnectedAt || null
+    });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao verificar status" });
+  }
+});
+
+// Desconectar Meta
+app.delete("/api/workspaces/:wsId/meta/disconnect", auth, async (req, res) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const meta = ws?.metadata || {};
+    delete meta.metaAccessToken;
+    delete meta.metaAdAccounts;
+    delete meta.metaConnectedAt;
+    await prisma.workspace.update({ where: { id: req.params.wsId }, data: { metadata: meta } });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao desconectar" });
+  }
+});
+
 // ── HEALTH ─────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", uptime: Math.round(process.uptime()) })
