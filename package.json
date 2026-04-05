@@ -3,9 +3,11 @@
   "version": "1.0.0",
   "main": "server.js",
   "scripts": {
-    "start": "node server.js",
-    "dev": "nodemon server.js"
-  },
+  "start": "node server.js",
+  "dev": "nodemon server.js",
+  "build": "prisma generate",
+  "postinstall": "prisma generate"
+},
   "dependencies": {
     "@prisma/client": "^7.6.0",
     "bcrypt": "^5.1.1",
