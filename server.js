@@ -541,7 +541,7 @@ const PLANS = {
   agency:  { priceId: "price_1TIql93DNcWhpXE14WJRCnnH", name: "Agency",  amount: 29700 },
 };
 
-// Criar sessão de checkout
+/// Criar sessão de checkout
 app.post("/api/billing/checkout", auth, async (req, res) => {
   try {
     const { plan } = req.body;
@@ -553,6 +553,8 @@ app.post("/api/billing/checkout", auth, async (req, res) => {
       payment_method_types: ["card"],
       customer_email: user.email,
       line_items: [{ price: p.priceId, quantity: 1 }],
+      trial_period_days: 15,
+      payment_method_collection: "if_required",
       success_url: `${process.env.FRONTEND_URL || "https://leadturbo.shop"}/success?session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${process.env.FRONTEND_URL || "https://leadturbo.shop"}/pricing`,
       metadata: { userId: req.user.id, plan },
