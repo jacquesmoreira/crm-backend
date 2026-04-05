@@ -668,7 +668,7 @@ app.get("/api/meta/oauth/callback", async (req, res) => {
     const d = await r.json();
     if(!d.access_token) throw new Error("Token não recebido");
     // Busca contas de anúncio do usuário
-    const adR = await fetch(`https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status&access_token=${d.access_token}`);
+    const adR = await fetch(`https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name,account_status,currency&limit=50&access_token=${d.access_token}`);
     const adD = await adR.json();
     // Salva token e ad accounts no workspace
     const ws = await prisma.workspace.findUnique({ where: { id: wsId } });
@@ -693,7 +693,8 @@ app.get("/api/workspaces/:wsId/meta/campaigns", auth, async (req, res) => {
     const accountId = req.query.accountId || meta.metaAdAccounts?.[0]?.id;
     if(!accountId) return res.status(400).json({ error: "Nenhuma conta de anúncios encontrada" });
     // Busca campanhas com métricas
-    const r = await fetch(`https://graph.facebook.com/v19.0/${accountId}/campaigns?fields=id,name,status,daily_budget,lifetime_budget,insights{spend,impressions,clicks,cpm,cpc,actions}&access_token=${meta.metaAccessToken}`);
+    const datePreset = req.query.datePreset || "last_30d";
+const r = await fetch(`https://graph.facebook.com/v19.0/${accountId}/campaigns?fields=id,name,status,daily_budget,lifetime_budget,insights.date_preset(${datePreset}){spend,impressions,clicks,cpm,cpc,actions,reach}&limit=50&access_token=${meta.metaAccessToken}`);
     const d = await r.json();
     if(d.error) return res.status(400).json({ error: d.error.message });
     res.json(d.data || []);
