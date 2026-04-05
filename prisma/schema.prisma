@@ -77,6 +77,7 @@ model User {
   phone        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  stripeCustomerId String?
 
   workspaces   WorkspaceMember[]
   leads        Lead[]    @relation("AssignedLeads")

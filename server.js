@@ -531,6 +531,95 @@ app.post("/api/workspaces/:wsId/email/send", auth, async (req, res) => {
   }
 });
 
+// ── STRIPE / COBRANÇA ─────────────────────────────
+const Stripe = require("stripe");
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+
+const PLANS = {
+  starter: { priceId: "price_1TIqkH3DNcWhpXE15eqSq2oQ", name: "Starter", amount: 7700 },
+  pro:     { priceId: "price_1TIqkk3DNcWhpXE1xc0pZbyF", name: "Pro",     amount: 14700 },
+  agency:  { priceId: "price_1TIql93DNcWhpXE14WJRCnnH", name: "Agency",  amount: 29700 },
+};
+
+// Criar sessão de checkout
+app.post("/api/billing/checkout", auth, async (req, res) => {
+  try {
+    const { plan } = req.body;
+    const p = PLANS[plan];
+    if(!p) return res.status(400).json({ error: "Plano inválido" });
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    const session = await stripe.checkout.sessions.create({
+      mode: "subscription",
+      payment_method_types: ["card"],
+      customer_email: user.email,
+      line_items: [{ price: p.priceId, quantity: 1 }],
+      success_url: `${process.env.FRONTEND_URL || "https://leadturbo.shop"}/success?session_id={CHECKOUT_SESSION_ID}`,
+      cancel_url: `${process.env.FRONTEND_URL || "https://leadturbo.shop"}/pricing`,
+      metadata: { userId: req.user.id, plan },
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao criar checkout" });
+  }
+});
+
+// Status da assinatura
+app.get("/api/billing/subscription", auth, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if(!user.stripeCustomerId) return res.json({ plan: "free", status: "none" });
+    const subs = await stripe.subscriptions.list({ customer: user.stripeCustomerId, limit: 1 });
+    if(!subs.data.length) return res.json({ plan: "free", status: "none" });
+    const sub = subs.data[0];
+    const priceId = sub.items.data[0].price.id;
+    const plan = Object.entries(PLANS).find(([,v])=>v.priceId===priceId)?.[0]||"free";
+    res.json({ plan, status: sub.status, renewsAt: new Date(sub.current_period_end*1000) });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao buscar assinatura" });
+  }
+});
+
+// Portal do cliente (gerenciar assinatura)
+app.post("/api/billing/portal", auth, async (req, res) => {
+  try {
+    const user = await prisma.user.findUnique({ where: { id: req.user.id } });
+    if(!user.stripeCustomerId) return res.status(400).json({ error: "Sem assinatura ativa" });
+    const session = await stripe.billingPortal.sessions.create({
+      customer: user.stripeCustomerId,
+      return_url: `${process.env.FRONTEND_URL || "https://leadturbo.shop"}`,
+    });
+    res.json({ url: session.url });
+  } catch (err) {
+    res.status(500).json({ error: "Erro ao abrir portal" });
+  }
+});
+
+// Webhook Stripe
+app.post("/api/webhooks/stripe", express.raw({type:"application/json"}), async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET||"");
+  } catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+  if(event.type === "checkout.session.completed") {
+    const session = event.data.object;
+    const { userId, plan } = session.metadata;
+    await prisma.user.update({
+      where: { id: userId },
+      data: { stripeCustomerId: session.customer }
+    }).catch(()=>{});
+    const ws = await prisma.workspaceMember.findFirst({ where: { userId } });
+    if(ws) await prisma.workspace.update({
+      where: { id: ws.workspaceId },
+      data: { plan: plan.toUpperCase() === "AGENCY" ? "ENTERPRISE" : plan.toUpperCase() === "PRO" ? "PRO" : "STARTER" }
+    }).catch(()=>{});
+  }
+  res.json({ received: true });
+});
+
 // ── HEALTH ─────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", uptime: Math.round(process.uptime()) })
