@@ -845,6 +845,143 @@ app.get("/api/workspaces/:wsId/meta/ads", auth, async (req, res) => {
   }
 });
 
+// ── PROPOSTAS ─────────────────────────────────────
+const PDFDocument = require("pdfkit");
+
+app.post("/api/workspaces/:wsId/leads/:leadId/proposals", auth, async (req, res) => {
+  try {
+    const { title, validDays, items, paymentTerms, notes, companyName, companyEmail, companyPhone } = req.body;
+    const lead = await prisma.lead.findUnique({ where: { id: req.params.leadId } });
+    if(!lead) return res.status(404).json({ error: "Lead não encontrado" });
+
+    const doc = new PDFDocument({ margin: 50, size: "A4" });
+    res.setHeader("Content-Type", "application/pdf");
+    res.setHeader("Content-Disposition", `attachment; filename="proposta-${lead.name.replace(/\s+/g,"-")}.pdf"`);
+    doc.pipe(res);
+
+    // Cores
+    const GREEN = "#00c896";
+    const DARK = "#0d1117";
+    const GRAY = "#64748b";
+    const LIGHT = "#f8fafc";
+
+    // Header
+    doc.rect(0, 0, 595, 100).fill(DARK);
+    doc.fontSize(24).fillColor(GREEN).font("Helvetica-Bold").text("Clien", 50, 35, { continued: true });
+    doc.fillColor("white").text("Data");
+    doc.fontSize(10).fillColor("#94a3b8").font("Helvetica").text("CRM Inteligente Brasileiro", 50, 65);
+    doc.fontSize(11).fillColor("white").text("PROPOSTA COMERCIAL", 370, 42);
+    const now = new Date();
+    const validUntil = new Date(now); validUntil.setDate(validUntil.getDate() + (validDays||30));
+    doc.fontSize(9).fillColor("#94a3b8")
+      .text(`Emissão: ${now.toLocaleDateString("pt-BR")}`, 370, 58)
+      .text(`Validade: ${validUntil.toLocaleDateString("pt-BR")}`, 370, 72);
+
+    doc.moveDown(4);
+
+    // Dados do cliente
+    doc.rect(50, 115, 495, 90).fill(LIGHT).stroke("#e2e8f0");
+    doc.fontSize(9).fillColor(GRAY).font("Helvetica-Bold").text("PROPOSTA PARA:", 65, 125);
+    doc.fontSize(14).fillColor(DARK).font("Helvetica-Bold").text(lead.name, 65, 138);
+    if(lead.company) doc.fontSize(10).fillColor(GRAY).font("Helvetica").text(lead.company, 65, 156);
+    if(lead.email) doc.fontSize(9).fillColor(GRAY).text(lead.email, 65, 170);
+
+    // Dados da empresa emissora
+    doc.fontSize(9).fillColor(GRAY).font("Helvetica-Bold").text("EMITIDA POR:", 350, 125);
+    doc.fontSize(11).fillColor(DARK).font("Helvetica-Bold").text(companyName||"Minha Empresa", 350, 138);
+    if(companyEmail) doc.fontSize(9).fillColor(GRAY).font("Helvetica").text(companyEmail, 350, 156);
+    if(companyPhone) doc.fontSize(9).fillColor(GRAY).text(companyPhone, 350, 170);
+
+    doc.moveDown(6);
+
+    // Título da proposta
+    doc.fontSize(15).fillColor(DARK).font("Helvetica-Bold").text(title||"Proposta Comercial", 50, 220);
+    doc.moveTo(50, 240).lineTo(545, 240).strokeColor(GREEN).lineWidth(2).stroke();
+
+    // Tabela de itens
+    doc.moveDown(0.5);
+    const tableTop = 255;
+
+    // Header da tabela
+    doc.rect(50, tableTop, 495, 24).fill(DARK);
+    doc.fontSize(9).fillColor("white").font("Helvetica-Bold")
+      .text("DESCRIÇÃO", 60, tableTop + 8)
+      .text("QTD", 340, tableTop + 8)
+      .text("VALOR UNIT.", 390, tableTop + 8)
+      .text("TOTAL", 470, tableTop + 8);
+
+    let y = tableTop + 24;
+    let grandTotal = 0;
+    const parsedItems = Array.isArray(items) ? items : [];
+
+    parsedItems.forEach((item, i) => {
+      const qty = Number(item.qty)||1;
+      const price = Number(item.price)||0;
+      const total = qty * price;
+      grandTotal += total;
+      const bg = i%2===0 ? "white" : LIGHT;
+      doc.rect(50, y, 495, 22).fill(bg);
+      doc.fontSize(9).fillColor(DARK).font("Helvetica")
+        .text(item.description||"", 60, y+7, { width: 270 })
+        .text(String(qty), 340, y+7)
+        .text(`R$ ${price.toLocaleString("pt-BR",{minimumFractionDigits:2})}`, 390, y+7)
+        .text(`R$ ${total.toLocaleString("pt-BR",{minimumFractionDigits:2})}`, 470, y+7);
+      y += 22;
+    });
+
+    // Total
+    doc.rect(50, y, 495, 30).fill(DARK);
+    doc.fontSize(12).fillColor(GREEN).font("Helvetica-Bold")
+      .text("TOTAL", 60, y+9)
+      .text(`R$ ${grandTotal.toLocaleString("pt-BR",{minimumFractionDigits:2})}`, 430, y+9);
+    y += 40;
+
+    // Condições de pagamento
+    if(paymentTerms){
+      doc.rect(50, y, 495, 1).fill("#e2e8f0");
+      y += 10;
+      doc.fontSize(10).fillColor(DARK).font("Helvetica-Bold").text("Condições de Pagamento", 50, y);
+      y += 16;
+      doc.fontSize(9).fillColor(GRAY).font("Helvetica").text(paymentTerms, 50, y, { width: 495 });
+      y += 30;
+    }
+
+    // Observações
+    if(notes){
+      doc.rect(50, y, 495, 1).fill("#e2e8f0");
+      y += 10;
+      doc.fontSize(10).fillColor(DARK).font("Helvetica-Bold").text("Observações", 50, y);
+      y += 16;
+      doc.fontSize(9).fillColor(GRAY).font("Helvetica").text(notes, 50, y, { width: 495 });
+      y += 30;
+    }
+
+    // Assinatura
+    y = Math.max(y, 650);
+    doc.rect(50, y, 200, 1).fill(DARK);
+    doc.rect(320, y, 200, 1).fill(DARK);
+    doc.fontSize(8).fillColor(GRAY).font("Helvetica")
+      .text(companyName||"Empresa", 50, y+6, { width: 200, align: "center" })
+      .text(lead.name, 320, y+6, { width: 200, align: "center" });
+
+    // Footer
+    doc.rect(0, 790, 595, 50).fill(DARK);
+    doc.fontSize(8).fillColor("#475569").font("Helvetica")
+      .text(`Proposta gerada pelo ClienData CRM · ${now.toLocaleDateString("pt-BR")} · cliendata.com.br`, 50, 808, { align: "center", width: 495 });
+
+    doc.end();
+
+    // Registrar na timeline
+    await prisma.activity.create({
+      data: { leadId: req.params.leadId, userId: req.user.id, type: "NOTA", description: `Proposta "${title||"Comercial"}" gerada — Total: R$ ${grandTotal.toLocaleString("pt-BR",{minimumFractionDigits:2})}` }
+    }).catch(()=>{});
+
+  } catch(err) {
+    console.error(err);
+    if(!res.headersSent) res.status(500).json({ error: "Erro ao gerar proposta" });
+  }
+});
+
 // ── HEALTH ─────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", uptime: Math.round(process.uptime()) })
