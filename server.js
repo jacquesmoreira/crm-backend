@@ -982,6 +982,173 @@ app.post("/api/workspaces/:wsId/leads/:leadId/proposals", auth, async (req, res)
   }
 });
 
+// ── FORMULÁRIO DE CAPTURA PÚBLICO ─────────────────
+// Buscar configuração do formulário (público)
+app.get("/api/form/:wsId", async (req, res) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId }, select: { id: true, name: true, metadata: true } });
+    if(!ws) return res.status(404).json({ error: "Formulário não encontrado" });
+    const meta = ws.metadata || {};
+    res.json({
+      workspaceName: ws.name,
+      formTitle: meta.formTitle || `Fale com ${ws.name}`,
+      formSubtitle: meta.formSubtitle || "Preencha o formulário e entraremos em contato em breve.",
+      formFields: meta.formFields || ["name","email","phone","company","message"],
+      formColor: meta.formColor || "#00c896",
+      formThankYou: meta.formThankYou || "Obrigado! Entraremos em contato em breve.",
+    });
+  } catch(err) {
+    res.status(500).json({ error: "Erro ao buscar formulário" });
+  }
+});
+
+// Salvar configuração do formulário
+app.post("/api/workspaces/:wsId/form/config", auth, async (req, res) => {
+  try {
+    const { formTitle, formSubtitle, formFields, formColor, formThankYou } = req.body;
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const meta = ws?.metadata || {};
+    await prisma.workspace.update({
+      where: { id: req.params.wsId },
+      data: { metadata: { ...meta, formTitle, formSubtitle, formFields, formColor, formThankYou } }
+    });
+    res.json({ success: true });
+  } catch(err) {
+    res.status(500).json({ error: "Erro ao salvar configuração" });
+  }
+});
+
+// Receber lead do formulário público (sem auth)
+app.post("/api/form/:wsId/submit", async (req, res) => {
+  try {
+    const { name, email, phone, company, message } = req.body;
+    if(!name) return res.status(400).json({ error: "Nome é obrigatório" });
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    if(!ws) return res.status(404).json({ error: "Formulário não encontrado" });
+
+    // Verificar limite do plano
+    const plan = (ws.plan || "FREE").toUpperCase();
+    const LIMITS = { FREE: 5, STARTER: 500, PRO: Infinity, ENTERPRISE: Infinity };
+    const limit = LIMITS[plan] ?? 5;
+    if(limit !== Infinity){
+      const count = await prisma.lead.count({ where: { workspaceId: req.params.wsId } });
+      if(count >= limit) return res.status(403).json({ error: "Limite de leads atingido" });
+    }
+
+    const lead = await prisma.lead.create({
+      data: {
+        name, email: email||null, phone: phone||null,
+        company: company||null, notes: message||null,
+        source: "Formulário Web", stage: "Novo Lead", score: 50,
+        workspaceId: req.params.wsId
+      }
+    });
+
+    await prisma.activity.create({
+      data: { leadId: lead.id, type: "CRIADO", description: `Lead capturado via formulário web` }
+    }).catch(()=>{});
+
+    // Notificar via WebSocket em tempo real
+    if(global.io){
+      global.io.to(req.params.wsId).emit("new_lead", { lead, source: "form" });
+    }
+
+    const meta = ws.metadata || {};
+    res.json({ success: true, thankYou: meta.formThankYou || "Obrigado! Entraremos em contato em breve." });
+  } catch(err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao enviar formulário" });
+  }
+});
+
+// Página HTML do formulário público
+app.get("/form/:wsId", async (req, res) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId }, select: { name: true, metadata: true } });
+    if(!ws) return res.status(404).send("<h2>Formulário não encontrado</h2>");
+    const meta = ws.metadata || {};
+    const color = meta.formColor || "#00c896";
+    const title = meta.formTitle || `Fale com ${ws.name}`;
+    const subtitle = meta.formSubtitle || "Preencha o formulário e entraremos em contato em breve.";
+    const thankYou = meta.formThankYou || "Obrigado! Entraremos em contato em breve.";
+    const fields = meta.formFields || ["name","email","phone","company","message"];
+
+    const fieldHTML = {
+      name: `<div class="field"><label>Nome *</label><input type="text" name="name" placeholder="Seu nome completo" required/></div>`,
+      email: `<div class="field"><label>E-mail</label><input type="email" name="email" placeholder="seu@email.com"/></div>`,
+      phone: `<div class="field"><label>Telefone</label><input type="tel" name="phone" placeholder="(47) 99999-9999"/></div>`,
+      company: `<div class="field"><label>Empresa</label><input type="text" name="company" placeholder="Nome da empresa"/></div>`,
+      message: `<div class="field"><label>Mensagem</label><textarea name="message" rows="4" placeholder="Como podemos ajudar?"></textarea></div>`,
+    };
+
+    res.send(`<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${title}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f8fafc;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+  .card{background:white;border-radius:16px;padding:40px;width:100%;max-width:480px;box-shadow:0 4px 24px rgba(0,0,0,0.08)}
+  .logo{font-size:13px;color:#94a3b8;margin-bottom:24px;display:flex;align-items:center;gap:6px}
+  .dot{width:8px;height:8px;border-radius:50%;background:${color};display:inline-block}
+  h1{font-size:22px;font-weight:700;color:#1e293b;margin-bottom:8px;line-height:1.3}
+  p{font-size:14px;color:#64748b;margin-bottom:28px;line-height:1.6}
+  .field{margin-bottom:16px}
+  label{display:block;font-size:12px;font-weight:600;color:#374151;margin-bottom:5px}
+  input,textarea{width:100%;border:1.5px solid #e2e8f0;border-radius:8px;padding:10px 14px;font-size:14px;outline:none;transition:border-color 0.2s;font-family:inherit;resize:vertical}
+  input:focus,textarea:focus{border-color:${color}}
+  button{width:100%;background:${color};color:white;border:none;border-radius:10px;padding:13px;font-size:15px;font-weight:700;cursor:pointer;margin-top:8px;transition:opacity 0.2s}
+  button:hover{opacity:0.9}
+  button:disabled{opacity:0.6;cursor:not-allowed}
+  .success{text-align:center;padding:32px 0;display:none}
+  .success-icon{font-size:48px;margin-bottom:16px}
+  .success h2{font-size:20px;font-weight:700;color:#1e293b;margin-bottom:8px}
+  .success p{font-size:14px;color:#64748b}
+  .footer{text-align:center;margin-top:20px;font-size:11px;color:#94a3b8}
+  .footer a{color:${color};text-decoration:none}
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo"><span class="dot"></span> ${ws.name}</div>
+  <div id="formArea">
+    <h1>${title}</h1>
+    <p>${subtitle}</p>
+    <form id="leadForm">
+      ${fields.map(f=>fieldHTML[f]||"").join("")}
+      <button type="submit" id="btn">Enviar →</button>
+    </form>
+  </div>
+  <div class="success" id="successArea">
+    <div class="success-icon">✅</div>
+    <h2>Mensagem enviada!</h2>
+    <p>${thankYou}</p>
+  </div>
+  <div class="footer">Powered by <a href="https://cliendata.com.br" target="_blank">ClienData</a></div>
+</div>
+<script>
+document.getElementById("leadForm").addEventListener("submit",async(e)=>{
+  e.preventDefault();
+  const btn=document.getElementById("btn");
+  btn.disabled=true;btn.textContent="Enviando...";
+  const data=Object.fromEntries(new FormData(e.target));
+  try{
+    const r=await fetch("/form/${req.params.wsId}/submit",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(data)});
+    const d=await r.json();
+    if(r.ok){document.getElementById("formArea").style.display="none";document.getElementById("successArea").style.display="block";}
+    else{alert(d.error||"Erro ao enviar");btn.disabled=false;btn.textContent="Enviar →";}
+  }catch{alert("Erro ao enviar");btn.disabled=false;btn.textContent="Enviar →";}
+});
+</script>
+</body>
+</html>`);
+  } catch(err) {
+    res.status(500).send("<h2>Erro interno</h2>");
+  }
+});
+
 // ── HEALTH ─────────────────────────────────────────
 app.get("/health", (_req, res) =>
   res.json({ status: "ok", uptime: Math.round(process.uptime()) })
