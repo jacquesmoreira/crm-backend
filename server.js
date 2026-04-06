@@ -108,6 +108,19 @@ app.get("/api/workspaces/:wsId/leads", auth, async (req, res) => {
 app.post("/api/workspaces/:wsId/leads", auth, async (req, res) => {
   try {
     const { name, company, email, phone, value, source, notes } = req.body;
+
+    // Verificar limite de leads por plano
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const plan = (ws?.plan || "FREE").toUpperCase();
+    const LIMITS = { FREE: 5, STARTER: 500, PRO: Infinity, ENTERPRISE: Infinity };
+    const limit = LIMITS[plan] ?? 5;
+    if(limit !== Infinity){
+      const count = await prisma.lead.count({ where: { workspaceId: req.params.wsId } });
+      if(count >= limit){
+        return res.status(403).json({ error: `Limite de ${limit} leads atingido no plano ${plan}. Faça upgrade para continuar.` });
+      }
+    }
+
     const lead = await prisma.lead.create({
       data: { name, company, email, phone, value: Number(value) || 0,
         source, notes, workspaceId: req.params.wsId, stage: "Novo Lead", score: 50 }
