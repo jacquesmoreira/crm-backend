@@ -263,6 +263,64 @@ app.get("/api/workspaces/:wsId/reports/kpis", auth, async (req, res) => {
   });
 });
 
+// Leads por dia (últimos 30 dias)
+app.get("/api/workspaces/:wsId/reports/leads-by-day", auth, async (req, res) => {
+  try {
+    const wid = req.params.wsId;
+    const days = parseInt(req.query.days) || 30;
+    const since = new Date();
+    since.setDate(since.getDate() - days);
+    const leads = await prisma.lead.findMany({
+      where: { workspaceId: wid, createdAt: { gte: since } },
+      select: { createdAt: true },
+    });
+    // Agrupar por dia
+    const counts = {};
+    for(let i = days-1; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.toISOString().slice(0,10);
+      counts[key] = 0;
+    }
+    leads.forEach(l => {
+      const key = l.createdAt.toISOString().slice(0,10);
+      if(counts[key] !== undefined) counts[key]++;
+    });
+    const data = Object.entries(counts).map(([day, count]) => ({
+      day: day.slice(5), // MM-DD
+      count,
+    }));
+    res.json(data);
+  } catch(err) {
+    res.status(500).json({ error: "Erro ao buscar leads por dia" });
+  }
+});
+
+// Leads em risco (sem atividade há mais de 5 dias)
+app.get("/api/workspaces/:wsId/reports/at-risk", auth, async (req, res) => {
+  try {
+    const wid = req.params.wsId;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 5);
+    const leads = await prisma.lead.findMany({
+      where: {
+        workspaceId: wid,
+        stage: { not: "Fechado" },
+        updatedAt: { lt: cutoff },
+      },
+      orderBy: { updatedAt: "asc" },
+      take: 10,
+    });
+    const data = leads.map(l => ({
+      ...l,
+      daysSince: Math.floor((Date.now() - new Date(l.updatedAt).getTime()) / (1000*60*60*24)),
+    }));
+    res.json(data);
+  } catch(err) {
+    res.status(500).json({ error: "Erro ao buscar leads em risco" });
+  }
+});
+
 // ── WEBHOOK META ADS ───────────────────────────────
 app.get("/api/webhooks/meta", (req, res) => {
   const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
