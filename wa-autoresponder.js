@@ -129,16 +129,23 @@ const ESCALATION_WORDS = [
   "cancelar", "cancelamento"
 ];
 
-function needsHumanEscalation(text) {
+function needsHumanEscalation(text, escalation) {
   const lower = text.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-  return ESCALATION_WORDS.some(word => lower.includes(word));
+  return escalation.some(word => lower.includes(word));
 }
 
 // ── HANDLER PRINCIPAL ──────────────────────────────────────────────
 
-async function handleAutoReply(instanceName, phone, text) {
+async function handleAutoReply(instanceName, phone, text, config) {
+  // Usa config do banco se disponível, senão usa as mensagens hardcoded
+  const msgs = (config && config.messages && config.messages.welcome)
+    ? config.messages : MESSAGES;
+  const escalation = (config && Array.isArray(config.escalationWords) && config.escalationWords.length > 0)
+    ? config.escalationWords : ESCALATION_WORDS;
+
   // Verifica se autoresponder está ativo
-  if (process.env.AUTORESPONDER_ENABLED !== "true") return;
+  const enabled = config ? config.enabled : (process.env.AUTORESPONDER_ENABLED === "true");
+  if (!enabled) return;
 
   // Ignora números inválidos
   if (!phone || phone.length < 10) return;
@@ -161,14 +168,14 @@ async function handleAutoReply(instanceName, phone, text) {
 
     // Envia boas-vindas (delay de 3s pra parecer humano)
     setTimeout(async () => {
-      await sendMessage(instanceName, phone, MESSAGES.welcome);
+      await sendMessage(instanceName, phone, msgs.welcome);
       lead.stage = "welcome_sent";
 
       // Agenda follow-ups
       // Follow-up 24h
-      scheduleMessage(instanceName, phone, MESSAGES.followup24h, 24 * 60 * 60 * 1000, "followup24h");
+      scheduleMessage(instanceName, phone, msgs.followup24h, 24 * 60 * 60 * 1000, "followup24h");
       // Follow-up 48h
-      scheduleMessage(instanceName, phone, MESSAGES.followup48h, 48 * 60 * 60 * 1000, "followup48h");
+      scheduleMessage(instanceName, phone, msgs.followup48h, 48 * 60 * 60 * 1000, "followup48h");
 
     }, 3000);
 
@@ -181,7 +188,7 @@ async function handleAutoReply(instanceName, phone, text) {
   lead.messageCount = (lead.messageCount || 0) + 1;
 
   // Verifica se precisa escalar pra humano
-  if (needsHumanEscalation(text)) {
+  if (needsHumanEscalation(text, escalation)) {
     lead.stage = "needs_human";
     cancelTimers(phone);
     console.log(`[AutoReply] ⚠️ ESCALAR HUMANO — ${phone}: "${text}"`);
@@ -198,11 +205,11 @@ async function handleAutoReply(instanceName, phone, text) {
 
     // Delay de 30s pra parecer que leu e tá digitando
     setTimeout(async () => {
-      await sendMessage(instanceName, phone, MESSAGES.protocol);
+      await sendMessage(instanceName, phone, msgs.protocol);
       lead.stage = "protocol_sent";
 
       // Envia garantia após 2 minutos
-      scheduleMessage(instanceName, phone, MESSAGES.guarantee, 2 * 60 * 1000, "guarantee");
+      scheduleMessage(instanceName, phone, msgs.guarantee, 2 * 60 * 1000, "guarantee");
 
     }, 30 * 1000); // 30 segundos
 

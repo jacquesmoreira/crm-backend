@@ -88,6 +88,40 @@ app.get("/api/workspaces", auth, async (req, res) => {
   res.json(members.map(m => ({ ...m.workspace, role: m.role })));
 });
 
+// Criar novo workspace
+app.post("/api/workspaces", auth, async (req, res) => {
+  try {
+    const { name } = req.body;
+    if (!name) return res.status(400).json({ error: "Nome é obrigatório" });
+    const ws = await prisma.workspace.create({ data: { name, ownerId: req.user.id } });
+    await prisma.workspaceMember.create({ data: { userId: req.user.id, workspaceId: ws.id, role: "ADMIN" } });
+    res.status(201).json(ws);
+  } catch(err) { res.status(500).json({ error: "Erro ao criar workspace" }); }
+});
+
+// GET autoresponder config
+app.get("/api/workspaces/:wsId/autoresponder", auth, async (req, res) => {
+  try {
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const cfg = ws?.metadata?.autoresponder || { enabled: false, messages: { welcome:"", protocol:"", guarantee:"", followup24h:"", followup48h:"" }, escalationWords: [] };
+    res.json(cfg);
+  } catch(err) { res.status(500).json({ error: "Erro ao buscar configuração" }); }
+});
+
+// PUT autoresponder config
+app.put("/api/workspaces/:wsId/autoresponder", auth, async (req, res) => {
+  try {
+    const { enabled, messages, escalationWords } = req.body;
+    const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
+    const meta = ws?.metadata || {};
+    await prisma.workspace.update({
+      where: { id: req.params.wsId },
+      data: { metadata: { ...meta, autoresponder: { enabled, messages, escalationWords } } }
+    });
+    res.json({ success: true });
+  } catch(err) { res.status(500).json({ error: "Erro ao salvar configuração" }); }
+});
+
 // ── LEADS ──────────────────────────────────────────
 app.get("/api/workspaces/:wsId/leads", auth, async (req, res) => {
   const { stage, search } = req.query;
@@ -466,9 +500,13 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
         }
       }
     } catch(dbErr) { console.error("WA webhook DB error:", dbErr.message); }
-    // Autoresponder
+    // Autoresponder — lê config do banco por workspace
     if (from === "lead" && phone && text && text !== "[mídia]") {
-      await handleAutoReply(instance, phone, text);
+      try {
+        const ws2 = await prisma.workspace.findUnique({ where: { id: wsId } });
+        const arCfg = ws2?.metadata?.autoresponder || null;
+        await handleAutoReply(instance, phone, text, arCfg);
+      } catch { await handleAutoReply(instance, phone, text, null); }
     }
   }
 });
