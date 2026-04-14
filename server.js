@@ -413,6 +413,7 @@ app.post("/api/workspaces/:wsId/whatsapp/send", auth, async (req, res) => {
 // Webhook receber mensagens
 app.post("/api/webhooks/whatsapp", async (req, res) => {
   res.sendStatus(200);
+  console.log("WA RAW:", JSON.stringify(req.body).slice(0, 300));
   const { event, instance, data } = req.body;
   if (event === "messages.upsert" && data?.message) {
     const phone = data.key?.remoteJid?.replace("@s.whatsapp.net", "");
