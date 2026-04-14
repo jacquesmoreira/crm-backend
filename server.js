@@ -6,6 +6,7 @@ const jwt          = require("jsonwebtoken");
 const bcrypt       = require("bcrypt");
 const { PrismaClient } = require("@prisma/client");
 require("dotenv").config();
+const { handleAutoReply, markAsCustomer } = require("./wa-autoresponder");
 
 const app = express();
 const http = require("http");
@@ -419,12 +420,16 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
     const from = data.key?.fromMe ? "me" : "lead";
     const wsId = instance?.replace("leadturbo_", "");
     console.log(`WA [${wsId}] ${from} ${phone}: ${text}`);
-    // Emitir via WebSocket para o frontend (próxima etapa)
+    // Emitir via WebSocket para o frontend
     console.log("global.io exists:", !!global.io, "wsId:", wsId);
-if (global.io) {
-  global.io.to(wsId).emit("wa_message", { phone, text, from, time: new Date() });
-  console.log("Emitted wa_message to:", wsId);
-}
+    if (global.io) {
+      global.io.to(wsId).emit("wa_message", { phone, text, from, time: new Date() });
+      console.log("Emitted wa_message to:", wsId);
+    }
+    // Autoresponder — só processa mensagens recebidas de leads
+    if (from === "lead" && phone && text) {
+      await handleAutoReply(instance, phone, text);
+    }
   }
 });
 
