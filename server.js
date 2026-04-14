@@ -413,22 +413,28 @@ app.post("/api/workspaces/:wsId/whatsapp/send", auth, async (req, res) => {
 // Webhook receber mensagens
 app.post("/api/webhooks/whatsapp", async (req, res) => {
   res.sendStatus(200);
-  console.log("WA RAW:", JSON.stringify(req.body).slice(0, 300));
   const { event, instance, data } = req.body;
   if (event === "messages.upsert" && data?.message) {
-    const phone = data.key?.remoteJid?.replace("@s.whatsapp.net", "");
-    const text = data.message?.conversation || data.message?.extendedTextMessage?.text || "";
+    const remoteJid = data.key?.remoteJid || "";
+    // Ignora grupos (@g.us) e identificadores internos — só processa chats pessoais
+    if (!remoteJid.endsWith("@s.whatsapp.net")) return;
+    const phone = remoteJid.replace("@s.whatsapp.net", "");
+    const text = data.message?.conversation
+      || data.message?.extendedTextMessage?.text
+      || data.message?.imageMessage?.caption
+      || data.message?.videoMessage?.caption
+      || data.message?.documentMessage?.caption
+      || data.message?.buttonsResponseMessage?.selectedDisplayText
+      || data.message?.listResponseMessage?.title
+      || "[mídia]";
     const from = data.key?.fromMe ? "me" : "lead";
     const wsId = instance?.replace("leadturbo_", "");
     console.log(`WA [${wsId}] ${from} ${phone}: ${text}`);
-    // Emitir via WebSocket para o frontend
-    console.log("global.io exists:", !!global.io, "wsId:", wsId);
     if (global.io) {
       global.io.to(wsId).emit("wa_message", { phone, text, from, time: new Date() });
-      console.log("Emitted wa_message to:", wsId);
     }
     // Autoresponder — só processa mensagens recebidas de leads
-    if (from === "lead" && phone && text) {
+    if (from === "lead" && phone && text && text !== "[mídia]") {
       await handleAutoReply(instance, phone, text);
     }
   }
