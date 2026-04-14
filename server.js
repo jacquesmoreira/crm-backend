@@ -404,6 +404,22 @@ app.post("/api/workspaces/:wsId/whatsapp/send", auth, async (req, res) => {
       body: JSON.stringify({ number: phone.replace(/\D/g, ""), text: message })
     });
     const d = await r.json();
+    // Salvar mensagem enviada no banco
+    try {
+      const digits = phone.replace(/\D/g,"");
+      const suffix = digits.slice(-8);
+      const wsLeads = await prisma.lead.findMany({ where: { workspaceId: req.params.wsId, phone: { not: null } }, select: { id: true, name: true, phone: true } });
+      let lead = wsLeads.find(l => l.phone && l.phone.replace(/\D/g,"").endsWith(suffix));
+      if (!lead) {
+        lead = await prisma.lead.create({ data: { name: digits, phone: digits, workspaceId: req.params.wsId, stage: "Novo Lead", source: "WhatsApp", score: 50 } });
+      }
+      let conv = await prisma.wAConversation.findFirst({ where: { leadId: lead.id } });
+      if (!conv) {
+        conv = await prisma.wAConversation.create({ data: { leadId: lead.id, phone: digits } });
+      }
+      await prisma.wAMessage.create({ data: { conversationId: conv.id, from: "me", text: message } });
+      await prisma.wAConversation.update({ where: { id: conv.id }, data: { lastMessage: message, unread: 0 } });
+    } catch(dbErr) { console.error("WA send DB error:", dbErr.message); }
     res.json(d);
   } catch (err) {
     res.status(500).json({ error: "Erro ao enviar mensagem" });
@@ -416,7 +432,6 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
   const { event, instance, data } = req.body;
   if (event === "messages.upsert" && data?.message) {
     const remoteJid = data.key?.remoteJid || "";
-    // Ignora grupos (@g.us) e identificadores internos — só processa chats pessoais
     if (!remoteJid.endsWith("@s.whatsapp.net")) return;
     const phone = remoteJid.replace("@s.whatsapp.net", "");
     const text = data.message?.conversation
@@ -430,14 +445,55 @@ app.post("/api/webhooks/whatsapp", async (req, res) => {
     const from = data.key?.fromMe ? "me" : "lead";
     const wsId = instance?.replace("leadturbo_", "");
     console.log(`WA [${wsId}] ${from} ${phone}: ${text}`);
-    if (global.io) {
-      global.io.to(wsId).emit("wa_message", { phone, text, from, time: new Date() });
-    }
-    // Autoresponder — só processa mensagens recebidas de leads
+    // Salvar no banco e emitir socket
+    try {
+      const ws = await prisma.workspace.findUnique({ where: { id: wsId } });
+      if (ws) {
+        const suffix = phone.slice(-8);
+        const wsLeads = await prisma.lead.findMany({ where: { workspaceId: wsId, phone: { not: null } }, select: { id: true, name: true, phone: true } });
+        let lead = wsLeads.find(l => l.phone && l.phone.replace(/\D/g,"").endsWith(suffix));
+        if (!lead) {
+          lead = await prisma.lead.create({ data: { name: phone, phone, workspaceId: wsId, stage: "Novo Lead", source: "WhatsApp", score: 50 } });
+        }
+        let conv = await prisma.wAConversation.findFirst({ where: { leadId: lead.id } });
+        if (!conv) {
+          conv = await prisma.wAConversation.create({ data: { leadId: lead.id, phone } });
+        }
+        const savedMsg = await prisma.wAMessage.create({ data: { conversationId: conv.id, from, text } });
+        await prisma.wAConversation.update({ where: { id: conv.id }, data: { lastMessage: text, unread: from === "lead" ? { increment: 1 } : 0 } });
+        if (global.io) {
+          global.io.to(wsId).emit("wa_message", { convId: conv.id, leadName: lead.name, phone, text, from, time: savedMsg.sentAt });
+        }
+      }
+    } catch(dbErr) { console.error("WA webhook DB error:", dbErr.message); }
+    // Autoresponder
     if (from === "lead" && phone && text && text !== "[mídia]") {
       await handleAutoReply(instance, phone, text);
     }
   }
+});
+
+// GET conversas WhatsApp do workspace
+app.get("/api/workspaces/:wsId/whatsapp/conversations", auth, async (req, res) => {
+  try {
+    const convs = await prisma.wAConversation.findMany({
+      where: { lead: { workspaceId: req.params.wsId } },
+      include: { lead: { select: { id: true, name: true, phone: true } } },
+      orderBy: { updatedAt: "desc" }
+    });
+    res.json(convs);
+  } catch(err) { res.status(500).json({ error: "Erro ao buscar conversas" }); }
+});
+
+// GET mensagens de uma conversa
+app.get("/api/workspaces/:wsId/whatsapp/conversations/:convId/messages", auth, async (req, res) => {
+  try {
+    const messages = await prisma.wAMessage.findMany({
+      where: { conversationId: req.params.convId },
+      orderBy: { sentAt: "asc" }
+    });
+    res.json(messages);
+  } catch(err) { res.status(500).json({ error: "Erro ao buscar mensagens" }); }
 });
 
 // ── AI PROXY ──────────────────────────────────────────
