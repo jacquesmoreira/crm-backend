@@ -356,7 +356,39 @@ app.get("/api/workspaces/:wsId/reports/at-risk", auth, async (req, res) => {
   }
 });
 
-// ── WEBHOOK META ADS ───────────────────────────────
+// Forecasting de receita
+app.get("/api/workspaces/:wsId/reports/forecast", auth, async (req, res) => {
+  try {
+    const wid = req.params.wsId;
+    const PROB = { "Novo Lead":0.05, "Qualificado":0.20, "Proposta":0.40, "Negociação":0.70, "Fechado":1.0 };
+    const leads = await prisma.lead.findMany({
+      where: { workspaceId: wid },
+      select: { stage:true, value:true, createdAt:true, updatedAt:true }
+    });
+    const byStage = {};
+    Object.keys(PROB).forEach(s=>{ byStage[s]={ count:0, total:0, weighted:0, prob:PROB[s] }; });
+    leads.forEach(l=>{
+      const s=l.stage||"Novo Lead";
+      if(byStage[s]){ byStage[s].count++; byStage[s].total+=l.value||0; byStage[s].weighted+=(l.value||0)*PROB[s]; }
+    });
+    const now=new Date();
+    const startOfMonth=new Date(now.getFullYear(),now.getMonth(),1);
+    const startLastMonth=new Date(now.getFullYear(),now.getMonth()-1,1);
+    const endLastMonth=new Date(now.getFullYear(),now.getMonth(),0);
+    const closedThisMonth=leads.filter(l=>l.stage==="Fechado"&&new Date(l.updatedAt)>=startOfMonth);
+    const closedLastMonth=leads.filter(l=>l.stage==="Fechado"&&new Date(l.updatedAt)>=startLastMonth&&new Date(l.updatedAt)<=endLastMonth);
+    const closedValue=closedThisMonth.reduce((a,l)=>a+(l.value||0),0);
+    const closedLastValue=closedLastMonth.reduce((a,l)=>a+(l.value||0),0);
+    const forecastTotal=Object.entries(byStage).filter(([s])=>s!=="Fechado").reduce((a,[,v])=>a+v.weighted,0);
+    const totalPipeline=Object.entries(byStage).filter(([s])=>s!=="Fechado").reduce((a,[,v])=>a+v.total,0);
+    const since30=new Date(); since30.setDate(since30.getDate()-30);
+    const recentClosedCount=leads.filter(l=>l.stage==="Fechado"&&new Date(l.updatedAt)>=since30).length;
+    res.json({ byStage, forecastTotal, closedValue, closedLastValue, totalPipeline, recentClosedCount });
+  } catch(err) {
+    console.error(err);
+    res.status(500).json({ error: "Erro ao calcular forecast" });
+  }
+});
 app.get("/api/webhooks/meta", (req, res) => {
   const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
   if (mode === "subscribe" && token === process.env.META_VERIFY_TOKEN)
