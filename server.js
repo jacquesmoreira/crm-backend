@@ -142,7 +142,7 @@ app.get("/api/workspaces/:wsId/leads", auth, async (req, res) => {
 
 app.post("/api/workspaces/:wsId/leads", auth, async (req, res) => {
   try {
-    const { name, company, email, phone, value, source, notes } = req.body;
+    const { name, company, email, phone, value, source, notes, force } = req.body;
 
     // Verificar limite de leads por plano
     const ws = await prisma.workspace.findUnique({ where: { id: req.params.wsId } });
@@ -156,8 +156,24 @@ app.post("/api/workspaces/:wsId/leads", auth, async (req, res) => {
       }
     }
 
+    // Detecção de duplicatas (a menos que force=true)
+    if(!force){
+      const orConditions = [];
+      if(email) orConditions.push({ email: { equals: email, mode: "insensitive" } });
+      if(phone) orConditions.push({ phone: phone.replace(/\D/g,"") });
+      if(orConditions.length > 0){
+        const duplicate = await prisma.lead.findFirst({
+          where: { workspaceId: req.params.wsId, OR: orConditions },
+          select: { id: true, name: true, email: true, phone: true, stage: true }
+        });
+        if(duplicate){
+          return res.status(409).json({ duplicate, error: `Lead duplicado encontrado: ${duplicate.name}` });
+        }
+      }
+    }
+
     const lead = await prisma.lead.create({
-      data: { name, company, email, phone, value: Number(value) || 0,
+      data: { name, company, email, phone: phone?.replace(/\D/g,"")||null, value: Number(value) || 0,
         source, notes, workspaceId: req.params.wsId, stage: "Novo Lead", score: 50 }
     });
     await prisma.activity.create({
